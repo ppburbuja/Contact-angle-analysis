@@ -1,0 +1,55 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+
+# Función de ajuste basada en el método ANCA (perfil de gota)
+def drop_profile(x, A, B, C, D):
+    return A * np.arctan(B * (x - C)) + D
+
+# Cargar la imagen y convertirla a escala de grises
+image_path = 'drop_image.jpg'  # Reemplaza con la imagen de la gota
+image = cv2.imread(image_path)
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+# Aplicar umbral adaptativo para mejorar la detección de bordes
+blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+_, binary = cv2.threshold(blurred, 50, 255, cv2.THRESH_BINARY_INV)
+
+# Encontrar contornos de la gota
+contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+largest_contour = max(contours, key=cv2.contourArea)
+
+# Extraer coordenadas del contorno y ordenar por X
+contour_points = largest_contour.squeeze()
+contour_points = contour_points[np.argsort(contour_points[:, 0])]
+
+# Filtrar puntos en la base de la gota (cercanos a la superficie)
+x_data, y_data = contour_points[:, 0], contour_points[:, 1]
+y_data = max(y_data) - y_data  # Invertir eje Y
+
+# Ajustar el perfil de la gota con la función ANCA
+popt, _ = curve_fit(drop_profile, x_data, y_data, p0=[1, 1, np.mean(x_data), np.mean(y_data)])
+
+# Derivar la curva para calcular el ángulo de contacto
+A, B, C, D = popt
+def derivative(x):
+    return A * B / (1 + (B * (x - C))**2)
+
+# Calcular ángulo en el punto de contacto
+x_contact = x_data[np.argmax(y_data)]  # Punto de contacto con la superficie
+theta_radians = np.arctan(abs(derivative(x_contact)))
+theta_degrees = np.degrees(theta_radians)
+
+# Mostrar resultados
+plt.figure(figsize=(6, 4))
+plt.imshow(gray, cmap='gray')
+plt.plot(x_data, max(y_data) - y_data, 'r.', markersize=3, label='Contorno detectado')
+x_fit = np.linspace(min(x_data), max(x_data), 500)
+y_fit = drop_profile(x_fit, *popt)
+plt.plot(x_fit, max(y_data) - y_fit, 'b-', label='Perfil ajustado')
+plt.legend()
+plt.title(f'Ángulo de contacto: {theta_degrees:.2f}°')
+plt.show()
+
+print(f'Ángulo de contacto medido: {theta_degrees:.2f}°')
